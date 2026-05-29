@@ -69,6 +69,8 @@ class GLMChatbot:
                     "top_p": 0.9
                 }
                 
+                print(f"[DEBUG] Sending request to GLM API (attempt {attempt + 1})...")
+                
                 # Send request with increased timeout
                 response = requests.post(
                     self.base_url,
@@ -77,11 +79,62 @@ class GLMChatbot:
                     timeout=self.timeout
                 )
                 
+                print(f"[DEBUG] Response status: {response.status_code}")
+                print(f"[DEBUG] Response text: {response.text[:500]}")
+                
                 response.raise_for_status()
                 
+                # Check if response has content
+                if not response.text or response.text.strip() == '':
+                    error_msg = f"API returned empty response (attempt {attempt + 1}/{self.max_retries})"
+                    print(error_msg)
+                    
+                    if attempt < self.max_retries - 1:
+                        time.sleep(2)
+                        continue
+                    else:
+                        self.conversation_history.pop()
+                        return "Sorry, the API returned an empty response. Please try again."
+                
                 # Parse response
-                data = response.json()
-                assistant_message = data["choices"][0]["message"]["content"]
+                try:
+                    data = response.json()
+                    print(f"[DEBUG] Parsed JSON: {json.dumps(data)[:500]}")
+                except json.JSONDecodeError as e:
+                    error_msg = f"Failed to parse JSON response: {str(e)} (attempt {attempt + 1}/{self.max_retries})"
+                    print(error_msg)
+                    
+                    if attempt < self.max_retries - 1:
+                        time.sleep(2)
+                        continue
+                    else:
+                        self.conversation_history.pop()
+                        return "Sorry, I couldn't parse the API response. Please try again."
+                
+                # Extract message from response
+                if "choices" not in data or len(data["choices"]) == 0:
+                    error_msg = f"Invalid response format - no choices (attempt {attempt + 1}/{self.max_retries})"
+                    print(error_msg)
+                    
+                    if attempt < self.max_retries - 1:
+                        time.sleep(2)
+                        continue
+                    else:
+                        self.conversation_history.pop()
+                        return f"API Error: Invalid response format. Response: {json.dumps(data)[:200]}"
+                
+                assistant_message = data["choices"][0].get("message", {}).get("content", "")
+                
+                if not assistant_message:
+                    error_msg = f"Empty message in response (attempt {attempt + 1}/{self.max_retries})"
+                    print(error_msg)
+                    
+                    if attempt < self.max_retries - 1:
+                        time.sleep(2)
+                        continue
+                    else:
+                        self.conversation_history.pop()
+                        return "The API returned an empty message. Please try again."
                 
                 # Add assistant response to history
                 self.conversation_history.append({
@@ -89,40 +142,45 @@ class GLMChatbot:
                     "content": assistant_message
                 })
                 
+                print("[DEBUG] Successfully got response!")
                 return assistant_message
                 
             except requests.exceptions.Timeout:
-                error_msg = f"API request timed out (attempt {attempt + 1}/{self.max_retries}). The server is taking longer than expected. Please try again."
+                error_msg = f"API request timed out (attempt {attempt + 1}/{self.max_retries}). The server is taking longer than expected."
                 print(error_msg)
                 
                 if attempt < self.max_retries - 1:
-                    time.sleep(2)  # Wait before retrying
+                    time.sleep(2)
                     continue
                 else:
-                    # Remove the user message if all retries failed
                     self.conversation_history.pop()
                     return error_msg
                     
             except requests.exceptions.ConnectionError as e:
-                error_msg = f"Connection error: Could not reach the API server. Please check your internet connection."
+                error_msg = f"Connection error: Could not reach the API server. {str(e)}"
                 print(error_msg)
                 self.conversation_history.pop()
                 return error_msg
                 
             except requests.exceptions.HTTPError as e:
-                error_msg = f"API Error: {response.status_code} - {str(e)}. Please check your API key."
+                try:
+                    error_detail = response.json()
+                    error_msg = f"API Error {response.status_code}: {json.dumps(error_detail)}"
+                except:
+                    error_msg = f"API Error: {response.status_code} - {str(e)}"
+                
                 print(error_msg)
                 self.conversation_history.pop()
                 return error_msg
                 
             except requests.exceptions.RequestException as e:
-                error_msg = f"API Error: {str(e)}"
+                error_msg = f"Request error: {str(e)}"
                 print(error_msg)
                 self.conversation_history.pop()
                 return error_msg
                 
-            except (KeyError, json.JSONDecodeError) as e:
-                error_msg = f"Response parsing error: {str(e)}"
+            except Exception as e:
+                error_msg = f"Unexpected error: {str(e)}"
                 print(error_msg)
                 self.conversation_history.pop()
                 return error_msg
