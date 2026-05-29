@@ -451,18 +451,32 @@
 
         async function loadConversations() {
             try {
+                console.log("Loading conversations from:", `${API_URL}/conversations`);
                 const response = await fetch(`${API_URL}/conversations`);
-                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const text = await response.text();
+                console.log("Raw response:", text);
+                
+                if (!text) {
+                    throw new Error("Empty response from server");
+                }
+                
+                const data = JSON.parse(text);
+                console.log("Parsed data:", data);
                 
                 if (data.success && data.conversations.length > 0) {
                     renderConversations(data.conversations);
-                    // Load first conversation
                     loadConversation(data.conversations[0].id);
                 } else {
                     conversationsList.innerHTML = '<div style="padding: 16px; color: #999; text-align: center; font-size: 14px;">No conversations yet</div>';
                 }
             } catch (error) {
                 console.error('Error loading conversations:', error);
+                addMessageToUI(`Failed to load conversations: ${error.message}`, false);
             }
         }
 
@@ -499,8 +513,22 @@
 
         async function loadConversation(conversationId) {
             try {
+                console.log("Loading conversation:", conversationId);
                 const response = await fetch(`${API_URL}/conversation/${conversationId}`);
-                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const text = await response.text();
+                console.log("Raw response:", text);
+                
+                if (!text) {
+                    throw new Error("Empty response from server");
+                }
+                
+                const data = JSON.parse(text);
+                console.log("Parsed data:", data);
                 
                 if (data.success) {
                     currentConversationId = conversationId;
@@ -529,6 +557,7 @@
                 }
             } catch (error) {
                 console.error('Error loading conversation:', error);
+                addMessageToUI(`Failed to load conversation: ${error.message}`, false);
             }
         }
 
@@ -609,6 +638,12 @@
             showTyping();
 
             try {
+                console.log("Sending message to:", `${API_URL}/chat`);
+                console.log("Payload:", { 
+                    message: message,
+                    conversation_id: currentConversationId
+                });
+                
                 const response = await fetch(`${API_URL}/chat`, {
                     method: 'POST',
                     headers: {
@@ -620,19 +655,33 @@
                     })
                 });
 
-                const data = await response.json();
+                console.log("Response status:", response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const text = await response.text();
+                console.log("Raw response:", text);
+                
+                if (!text) {
+                    throw new Error("Empty response from server");
+                }
+                
+                const data = JSON.parse(text);
+                console.log("Parsed data:", data);
 
                 removeTyping();
 
                 if (data.success) {
                     addMessageToUI(data.response, false);
-                    // Reload conversations to update the list
                     loadConversations();
                 } else {
                     addMessageToUI(`Error: ${data.error}`, false);
                 }
             } catch (error) {
                 removeTyping();
+                console.error('Error:', error);
                 addMessageToUI(`Connection error: ${error.message}`, false);
             } finally {
                 isSending = false;
@@ -652,6 +701,10 @@
                     method: 'DELETE'
                 });
 
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
                 const data = await response.json();
 
                 if (data.success) {
@@ -662,6 +715,7 @@
                 }
             } catch (error) {
                 console.error('Error deleting conversation:', error);
+                addMessageToUI(`Failed to delete conversation: ${error.message}`, false);
             }
         }
 
