@@ -3,6 +3,7 @@ import json
 import requests
 from dotenv import load_dotenv
 from typing import List, Dict, Optional
+import time
 
 # Load environment variables
 load_dotenv()
@@ -31,6 +32,10 @@ class GLMChatbot:
         
         # Conversation history
         self.conversation_history: List[Dict[str, str]] = []
+        
+        # Timeout settings (increased from 30s to 120s to handle slow API)
+        self.timeout = 120
+        self.max_retries = 2
     
     def send_message(self, user_message: str) -> str:
         """
@@ -48,50 +53,83 @@ class GLMChatbot:
             "content": user_message
         })
         
-        try:
-            # Prepare request
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "model": "glm-4",
-                "messages": self.conversation_history,
-                "temperature": 0.7,
-                "top_p": 0.9
-            }
-            
-            # Send request
-            response = requests.post(
-                self.base_url,
-                headers=headers,
-                json=payload,
-                timeout=30
-            )
-            
-            response.raise_for_status()
-            
-            # Parse response
-            data = response.json()
-            assistant_message = data["choices"][0]["message"]["content"]
-            
-            # Add assistant response to history
-            self.conversation_history.append({
-                "role": "assistant",
-                "content": assistant_message
-            })
-            
-            return assistant_message
-            
-        except requests.exceptions.RequestException as e:
-            error_msg = f"API Error: {str(e)}"
-            print(error_msg)
-            return error_msg
-        except (KeyError, json.JSONDecodeError) as e:
-            error_msg = f"Response parsing error: {str(e)}"
-            print(error_msg)
-            return error_msg
+        # Retry logic
+        for attempt in range(self.max_retries):
+            try:
+                # Prepare request
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+                
+                payload = {
+                    "model": "glm-4",
+                    "messages": self.conversation_history,
+                    "temperature": 0.7,
+                    "top_p": 0.9
+                }
+                
+                # Send request with increased timeout
+                response = requests.post(
+                    self.base_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=self.timeout
+                )
+                
+                response.raise_for_status()
+                
+                # Parse response
+                data = response.json()
+                assistant_message = data["choices"][0]["message"]["content"]
+                
+                # Add assistant response to history
+                self.conversation_history.append({
+                    "role": "assistant",
+                    "content": assistant_message
+                })
+                
+                return assistant_message
+                
+            except requests.exceptions.Timeout:
+                error_msg = f"API request timed out (attempt {attempt + 1}/{self.max_retries}). The server is taking longer than expected. Please try again."
+                print(error_msg)
+                
+                if attempt < self.max_retries - 1:
+                    time.sleep(2)  # Wait before retrying
+                    continue
+                else:
+                    # Remove the user message if all retries failed
+                    self.conversation_history.pop()
+                    return error_msg
+                    
+            except requests.exceptions.ConnectionError as e:
+                error_msg = f"Connection error: Could not reach the API server. Please check your internet connection."
+                print(error_msg)
+                self.conversation_history.pop()
+                return error_msg
+                
+            except requests.exceptions.HTTPError as e:
+                error_msg = f"API Error: {response.status_code} - {str(e)}. Please check your API key."
+                print(error_msg)
+                self.conversation_history.pop()
+                return error_msg
+                
+            except requests.exceptions.RequestException as e:
+                error_msg = f"API Error: {str(e)}"
+                print(error_msg)
+                self.conversation_history.pop()
+                return error_msg
+                
+            except (KeyError, json.JSONDecodeError) as e:
+                error_msg = f"Response parsing error: {str(e)}"
+                print(error_msg)
+                self.conversation_history.pop()
+                return error_msg
+        
+        error_msg = "Failed to get response after multiple attempts. Please try again later."
+        self.conversation_history.pop()
+        return error_msg
     
     def reset_conversation(self):
         """Reset conversation history."""
