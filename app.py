@@ -13,34 +13,31 @@ CORS(app)
 
 # Global chatbot instance
 chatbot_instance = None
-HISTORY_FILE = 'chat_history.json'
+CONVERSATIONS_FILE = 'conversations.json'
 
-def load_history_from_file():
-    """Load chat history from JSON file"""
-    if os.path.exists(HISTORY_FILE):
+def load_conversations():
+    """Load all conversations from JSON file"""
+    if os.path.exists(CONVERSATIONS_FILE):
         try:
-            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+            with open(CONVERSATIONS_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except:
-            return []
-    return []
+            return {}
+    return {}
 
-def save_history_to_file(history):
-    """Save chat history to JSON file"""
+def save_conversations(conversations):
+    """Save conversations to JSON file"""
     try:
-        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
+        with open(CONVERSATIONS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(conversations, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"Error saving history: {e}")
+        print(f"Error saving conversations: {e}")
 
 def get_chatbot():
     global chatbot_instance
     if chatbot_instance is None:
         try:
             chatbot_instance = GLMChatbot()
-            # Load previous history into chatbot
-            history = load_history_from_file()
-            chatbot_instance.conversation_history = history
         except ValueError as e:
             return None, str(e)
     return chatbot_instance, None
@@ -78,7 +75,11 @@ def chat():
         if not data or 'message' not in data:
             return jsonify({"error": "Message field is required"}), 400
         
+        if not data.get('conversation_id'):
+            return jsonify({"error": "Conversation ID is required"}), 400
+        
         user_message = data['message'].strip()
+        conversation_id = data['conversation_id']
         
         if not user_message:
             return jsonify({"error": "Message cannot be empty"}), 400
@@ -89,8 +90,26 @@ def chat():
         
         response = chatbot.send_message(user_message)
         
-        # Save history after each message
-        save_history_to_file(chatbot.conversation_history)
+        # Save message to conversation
+        conversations = load_conversations()
+        if conversation_id not in conversations:
+            conversations[conversation_id] = {
+                "id": conversation_id,
+                "title": user_message[:50] + "..." if len(user_message) > 50 else user_message,
+                "created_at": datetime.now().isoformat(),
+                "messages": []
+            }
+        
+        conversations[conversation_id]["messages"].append({
+            "role": "user",
+            "content": user_message
+        })
+        conversations[conversation_id]["messages"].append({
+            "role": "assistant",
+            "content": response
+        })
+        
+        save_conversations(conversations)
         
         return jsonify({
             "success": True,
@@ -101,56 +120,76 @@ def chat():
     except Exception as e:
         return jsonify({"error": str(e), "success": False}), 500
 
-@app.route('/api/history', methods=['GET'])
-def get_history():
-    """Get conversation history"""
+@app.route('/api/conversations', methods=['GET'])
+def get_conversations():
+    """Get all conversations"""
     try:
-        history = load_history_from_file()
+        conversations = load_conversations()
+        # Return sorted by created_at (newest first)
+        sorted_convs = sorted(
+            conversations.values(),
+            key=lambda x: x.get('created_at', ''),
+            reverse=True
+        )
         return jsonify({
             "success": True,
-            "history": history
+            "conversations": sorted_convs
         }), 200
-        
     except Exception as e:
         return jsonify({"error": str(e), "success": False}), 500
 
-@app.route('/api/clear', methods=['POST'])
-def clear_history():
-    """Clear conversation history"""
+@app.route('/api/conversation/<conversation_id>', methods=['GET'])
+def get_conversation(conversation_id):
+    """Get a specific conversation"""
     try:
-        global chatbot_instance
-        
-        # Clear from file
-        save_history_to_file([])
-        
-        # Clear from chatbot instance
-        if chatbot_instance:
-            chatbot_instance.reset_conversation()
-        
-        return jsonify({
-            "success": True,
-            "message": "Conversation history cleared"
-        }), 200
-        
+        conversations = load_conversations()
+        if conversation_id in conversations:
+            return jsonify({
+                "success": True,
+                "conversation": conversations[conversation_id]
+            }), 200
+        else:
+            return jsonify({
+                "error": "Conversation not found"
+            }), 404
     except Exception as e:
         return jsonify({"error": str(e), "success": False}), 500
 
-@app.route('/api/reset', methods=['POST'])
-def reset_chatbot():
-    """Reset chatbot instance and clear history"""
-    global chatbot_instance
+@app.route('/api/conversation/<conversation_id>', methods=['DELETE'])
+def delete_conversation(conversation_id):
+    """Delete a conversation"""
     try:
-        # Clear history file
-        save_history_to_file([])
-        
-        # Reset chatbot instance
-        chatbot_instance = None
-        
-        return jsonify({
-            "success": True,
-            "message": "Chatbot reset successfully"
-        }), 200
-        
+        conversations = load_conversations()
+        if conversation_id in conversations:
+            del conversations[conversation_id]
+            save_conversations(conversations)
+            return jsonify({
+                "success": True,
+                "message": "Conversation deleted"
+            }), 200
+        else:
+            return jsonify({
+                "error": "Conversation not found"
+            }), 404
+    except Exception as e:
+        return jsonify({"error": str(e), "success": False}), 500
+
+@app.route('/api/conversation/<conversation_id>/clear', methods=['POST'])
+def clear_conversation(conversation_id):
+    """Clear messages in a conversation"""
+    try:
+        conversations = load_conversations()
+        if conversation_id in conversations:
+            conversations[conversation_id]["messages"] = []
+            save_conversations(conversations)
+            return jsonify({
+                "success": True,
+                "message": "Conversation cleared"
+            }), 200
+        else:
+            return jsonify({
+                "error": "Conversation not found"
+            }), 404
     except Exception as e:
         return jsonify({"error": str(e), "success": False}), 500
 
