@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file, render_template_string
 from flask_cors import CORS
 import os
 from dotenv import load_dotenv
@@ -21,10 +21,29 @@ def get_chatbot():
             return None, str(e)
     return chatbot_instance, None
 
-@app.route('/', methods=['GET'])
+# Read the HTML file
+def get_html_content():
+    try:
+        with open('index.html', 'r', encoding='utf-8') as f:
+            return f.read()
+    except FileNotFoundError:
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Error</title>
+        </head>
+        <body>
+            <h1>index.html not found</h1>
+            <p>The frontend file could not be loaded.</p>
+        </body>
+        </html>
+        """
+
+@app.route('/')
 def home():
-    """Serve the home page"""
-    return jsonify({"message": "GLM Chatbot API is running!", "status": "ok"})
+    """Serve the home page (index.html)"""
+    return render_template_string(get_html_content())
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
@@ -104,4 +123,4 @@ def reset_chatbot():
         return jsonify({"error": str(e), "success": False}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=False, host='0.0.0.0', port=5000)
