@@ -63,7 +63,7 @@ class GLMChatbot:
                 }
                 
                 payload = {
-                    "model": "glm-4",
+                    "model": "glm-4.7-flash",
                     "messages": self.conversation_history,
                     "temperature": 0.7,
                     "top_p": 0.9
