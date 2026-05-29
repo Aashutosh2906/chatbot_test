@@ -1,6 +1,8 @@
-from flask import Flask, request, jsonify, send_file, render_template_string
+from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
 import os
+import json
+from datetime import datetime
 from dotenv import load_dotenv
 from chatbot import GLMChatbot
 
@@ -11,12 +13,34 @@ CORS(app)
 
 # Global chatbot instance
 chatbot_instance = None
+HISTORY_FILE = 'chat_history.json'
+
+def load_history_from_file():
+    """Load chat history from JSON file"""
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return []
+    return []
+
+def save_history_to_file(history):
+    """Save chat history to JSON file"""
+    try:
+        with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Error saving history: {e}")
 
 def get_chatbot():
     global chatbot_instance
     if chatbot_instance is None:
         try:
             chatbot_instance = GLMChatbot()
+            # Load previous history into chatbot
+            history = load_history_from_file()
+            chatbot_instance.conversation_history = history
         except ValueError as e:
             return None, str(e)
     return chatbot_instance, None
@@ -65,6 +89,9 @@ def chat():
         
         response = chatbot.send_message(user_message)
         
+        # Save history after each message
+        save_history_to_file(chatbot.conversation_history)
+        
         return jsonify({
             "success": True,
             "message": user_message,
@@ -78,13 +105,10 @@ def chat():
 def get_history():
     """Get conversation history"""
     try:
-        chatbot, error = get_chatbot()
-        if error:
-            return jsonify({"error": error}), 500
-        
+        history = load_history_from_file()
         return jsonify({
             "success": True,
-            "history": chatbot.conversation_history
+            "history": history
         }), 200
         
     except Exception as e:
@@ -94,11 +118,14 @@ def get_history():
 def clear_history():
     """Clear conversation history"""
     try:
-        chatbot, error = get_chatbot()
-        if error:
-            return jsonify({"error": error}), 500
+        global chatbot_instance
         
-        chatbot.reset_conversation()
+        # Clear from file
+        save_history_to_file([])
+        
+        # Clear from chatbot instance
+        if chatbot_instance:
+            chatbot_instance.reset_conversation()
         
         return jsonify({
             "success": True,
@@ -110,10 +137,15 @@ def clear_history():
 
 @app.route('/api/reset', methods=['POST'])
 def reset_chatbot():
-    """Reset chatbot instance"""
+    """Reset chatbot instance and clear history"""
     global chatbot_instance
     try:
+        # Clear history file
+        save_history_to_file([])
+        
+        # Reset chatbot instance
         chatbot_instance = None
+        
         return jsonify({
             "success": True,
             "message": "Chatbot reset successfully"
