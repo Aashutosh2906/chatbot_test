@@ -313,7 +313,11 @@
     </div>
 
     <script>
-        const API_URL = 'http://localhost:5000/api';
+        // Auto-detect API URL - works for both local and production deployment
+        const API_URL = window.location.hostname === 'localhost' 
+            ? 'http://localhost:5000/api'
+            : `${window.location.origin}/api`;
+        
         let isSending = false;
 
         const messageInput = document.getElementById('messageInput');
@@ -417,7 +421,7 @@
                 }
             } catch (error) {
                 removeTyping();
-                addMessage(`Connection error: ${error.message}. Make sure the server is running on http://localhost:5000`, false);
+                addMessage(`Connection error: ${error.message}. Please try again.`, false);
             } finally {
                 isSending = false;
                 sendBtn.disabled = false;
